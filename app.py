@@ -4,6 +4,8 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
+import gdown
+
 
 # =========================
 # CONFIGURAÇÕES
@@ -13,7 +15,8 @@ load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-ARQUIVO_EXCEL = "Analise Shibata.xlsx"
+URL_EXCEL = "https://drive.google.com/uc?id=1SBbrWnhXnS9azkEOJuyjL4BuI_LIT00E"
+ARQUIVO_LOCAL = "arquivo_temp.xlsx"
 ABA_EXCEL = "BD"
 LOGO_LOCAL = "logo_panco.png"
 
@@ -51,9 +54,10 @@ st.markdown("""
     top: 48px;
     left: 0;
     width: 100%;
+    height: 72px;
     background-color: #D60000;
     color: white;
-    padding: 14px 28px;
+    padding: 0 28px;
     z-index: 9999;
     display: flex;
     align-items: center;
@@ -62,7 +66,7 @@ st.markdown("""
 }
 
 .logo {
-    height: 72px;
+    height: 44px;
     background: white;
     border-radius: 8px;
     padding: 4px;
@@ -72,14 +76,15 @@ st.markdown("""
     font-size: 28px;
     font-weight: 800;
     margin: 0;
+    line-height: 1;
 }
 
 .block-container {
-    padding-top: 105px !important;
+    padding-top: 150px !important;
 }
 
 [data-testid="stSidebar"] {
-    padding-top: 80px;
+    padding-top: 120px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -97,7 +102,10 @@ st.markdown(f"""
 
 @st.cache_data
 def carregar_planilha():
-    df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=ABA_EXCEL)
+    if not os.path.exists(ARQUIVO_LOCAL) or os.path.getsize(ARQUIVO_LOCAL) < 1000:
+        gdown.download(URL_EXCEL, ARQUIVO_LOCAL, quiet=False)
+
+    df = pd.read_excel(ARQUIVO_LOCAL, sheet_name=ABA_EXCEL)
 
     for coluna in df.columns:
         nome_coluna = str(coluna).lower()
@@ -255,11 +263,12 @@ Você é um analista de dados sênior da Panco.
 Responda de forma clara, objetiva e profissional.
 
 Regras:
-- Use somente o resultado calculado.
+- responda sempre baseado na planilha .
 - Nunca invente valores.
 - Se o resultado estiver vazio, informe que não foram encontrados dados.
 - Formate valores monetários em R$ quando fizer sentido.
 - Seja direto.
+- traga sempre uma recomendação ao final de cada resultado
 
 Pergunta do usuário:
 {pergunta}
