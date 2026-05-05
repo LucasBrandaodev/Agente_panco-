@@ -6,18 +6,15 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import gdown
 
-
 # =========================
 # CONFIGURAÇÕES
 # =========================
 
 load_dotenv()
-
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 URL_EXCEL = "https://drive.google.com/uc?id=1SBbrWnhXnS9azkEOJuyjL4BuI_LIT00E"
 ARQUIVO_LOCAL = "arquivo_temp.xlsx"
-ABA_EXCEL = "BD"
 LOGO_LOCAL = "logo_panco.png"
 
 st.set_page_config(
@@ -38,10 +35,7 @@ def carregar_logo_base64(caminho_logo):
 
 logo_base64 = carregar_logo_base64(LOGO_LOCAL)
 
-if logo_base64:
-    logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo">'
-else:
-    logo_html = ""
+logo_html = f'<img src="data:image/png;base64,{logo_base64}" class="logo">' if logo_base64 else ""
 
 # =========================
 # CSS / HEADER
@@ -76,7 +70,6 @@ st.markdown("""
     font-size: 28px;
     font-weight: 800;
     margin: 0;
-    line-height: 1;
 }
 
 .block-container {
@@ -97,7 +90,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================
-# CARREGAR PLANILHA
+# CARREGAR PLANILHA (MULTI ABAS)
 # =========================
 
 @st.cache_data
@@ -105,28 +98,38 @@ def carregar_planilha():
     if not os.path.exists(ARQUIVO_LOCAL) or os.path.getsize(ARQUIVO_LOCAL) < 1000:
         gdown.download(URL_EXCEL, ARQUIVO_LOCAL, quiet=False)
 
-    df = pd.read_excel(ARQUIVO_LOCAL, sheet_name=ABA_EXCEL)
+    dfs = pd.read_excel(ARQUIVO_LOCAL, sheet_name=None)
 
-    for coluna in df.columns:
-        nome_coluna = str(coluna).lower()
+    # Padronizar datas
+    for nome_aba, df in dfs.items():
+        for coluna in df.columns:
+            nome_coluna = str(coluna).lower()
 
-        if "data" in nome_coluna or coluna == "Cód C.Fornec.":
-            df[coluna] = pd.to_datetime(df[coluna], dayfirst=True, errors="coerce")
+            if "data" in nome_coluna or "date" in nome_coluna:
+                df[coluna] = pd.to_datetime(df[coluna], dayfirst=True, errors="coerce")
 
-    return df
+        dfs[nome_aba] = df
 
-df = carregar_planilha()
+    return dfs
+
+dfs = carregar_planilha()
+
+# Aba padrão (opcional)
+df = list(dfs.values())[0]
 
 # =========================
 # SIDEBAR
 # =========================
 
-st.sidebar.header("Base carregada")
-st.sidebar.write("Linhas:", len(df))
-st.sidebar.write("Colunas:", len(df.columns))
+st.sidebar.header("📊 Abas carregadas")
 
-with st.sidebar.expander("Ver colunas"):
-    st.write(list(df.columns))
+for nome, df_temp in dfs.items():
+    st.sidebar.write(f"📄 {nome} → {len(df_temp)} linhas")
+
+with st.sidebar.expander("Ver estrutura"):
+    for nome, df_temp in dfs.items():
+        st.write(f"### {nome}")
+        st.write(list(df_temp.columns))
 
 # =========================
 # HISTÓRICO
@@ -140,48 +143,38 @@ for msg in st.session_state.mensagens:
         st.write(msg["content"])
 
 # =========================
-# GERAR CÓDIGO PANDAS
+# GERAR CÓDIGO (MULTI ABAS)
 # =========================
 
 def gerar_codigo(pergunta):
-    colunas = list(df.columns)
-    amostra = df.head(15).to_string()
+    estrutura = ""
+
+    for nome, df_temp in dfs.items():
+        estrutura += f"\nAba: {nome}\nColunas: {list(df_temp.columns)}\n"
 
     prompt = f"""
 Você é um analista de dados sênior.
 
-Você deve responder perguntas sobre uma planilha Excel usando pandas.
+Você deve responder perguntas usando múltiplas abas.
+
+As abas estão no dicionário dfs:
+dfs["nome_da_aba"]
 
 Gere APENAS código Python.
-Não explique.
-Não use markdown.
-Não use ```.
 
-Regras obrigatórias:
-- O dataframe já existe e se chama df.
-- Use somente os dados do dataframe df.
-- Use somente colunas existentes.
-- O resultado final deve ser salvo na variável resultado.
-- Não leia arquivos.
-- Não importe bibliotecas.
-- Não use print.
-- Não use input.
-- Não use exec, eval, open, os, sys ou subprocess.
-- Se a pergunta envolver hoje, use pd.Timestamp.today().
-- Se a pergunta envolver ontem, use pd.Timestamp.today() - pd.Timedelta(days=1).
-- Se houver coluna de data, compare usando .dt.date.
-- Para YTD, considere do primeiro dia do ano atual até hoje.
-- Para MTD, considere do primeiro dia do mês atual até hoje.
-- Para ranking, agrupe e ordene do maior para o menor.
-- Para faturamento, venda ou receita, use a coluna numérica mais relacionada a valor, venda líquida, faturamento, receita ou total.
+Regras:
+- Use dfs["nome_da_aba"]
+- Não explique nada
+- Não use markdown
+- O resultado deve ficar na variável resultado
+- Não use import
+- Não use print
+- Não use arquivos
 
-Colunas disponíveis:
-{colunas}
+Estrutura:
+{estrutura}
 
-Amostra da base:
-{amostra}
-
-Pergunta do usuário:
+Pergunta:
 {pergunta}
 """
 
@@ -197,84 +190,64 @@ Pergunta do usuário:
 # =========================
 
 def validar_codigo(codigo):
-    bloqueados = [
-        "import ",
-        "open(",
-        "exec(",
-        "eval(",
-        "__",
-        "os.",
-        "sys.",
-        "subprocess",
-        "shutil",
-        "socket",
-        "requests",
-        "read_excel",
-        "read_csv",
-        "to_excel",
-        "to_csv"
+    proibidos = [
+        "import", "open(", "exec(", "eval(",
+        "__", "os.", "sys.", "subprocess",
+        "read_excel", "to_excel", "read_csv"
     ]
 
-    codigo_lower = codigo.lower()
-
-    for termo in bloqueados:
-        if termo in codigo_lower:
-            raise ValueError(f"Código bloqueado por segurança: {termo}")
+    for termo in proibidos:
+        if termo in codigo.lower():
+            raise ValueError(f"Código bloqueado: {termo}")
 
 def executar_codigo(codigo):
     validar_codigo(codigo)
 
     ambiente = {
-        "df": df.copy(),
+        "dfs": {k: v.copy() for k, v in dfs.items()},
         "pd": pd,
         "len": len,
         "sum": sum,
         "min": min,
         "max": max,
-        "round": round,
-        "abs": abs,
-        "float": float,
-        "int": int,
-        "str": str
+        "round": round
     }
 
     exec(codigo, {"__builtins__": {}}, ambiente)
 
     if "resultado" not in ambiente:
-        raise ValueError("O código não gerou a variável resultado.")
+        raise ValueError("Código não gerou 'resultado'")
 
     return ambiente["resultado"]
 
 # =========================
-# GERAR RESPOSTA FINAL
+# RESPOSTA FINAL
 # =========================
 
 def gerar_resposta(pergunta, resultado):
     if isinstance(resultado, pd.DataFrame):
-        texto_resultado = resultado.head(50).to_string()
+        texto = resultado.head(50).to_string()
     elif isinstance(resultado, pd.Series):
-        texto_resultado = resultado.to_string()
+        texto = resultado.to_string()
     else:
-        texto_resultado = str(resultado)
+        texto = str(resultado)
 
     prompt = f"""
-Você é um analista de dados sênior da Panco.
+Você é um analista de dados da Panco.
 
-Responda de forma clara, objetiva e profissional.
+Responda de forma clara e objetiva.
 
 Regras:
-- responda sempre baseado na planilha .
-- Nunca invente valores.
-- Se o resultado estiver vazio, informe que não foram encontrados dados.
-- Formate valores monetários em R$ quando fizer sentido.
-- Seja direto.
-- traga sempre uma recomendação ao final de cada resultado
+- Não invente dados
+- Use R$ para valores monetários
+- Se não houver dados, informe
+- Sempre dê uma recomendação no final
 
-Pergunta do usuário:
+Pergunta:
 {pergunta}
 
-Resultado calculado:
-{texto_resultado}
+Resultado:
+{texto}
 """
 
     resposta = client.responses.create(
@@ -288,7 +261,7 @@ Resultado calculado:
 # CHAT
 # =========================
 
-pergunta = st.chat_input("Digite sua pergunta sobre a planilha...")
+pergunta = st.chat_input("Pergunte sobre os dados...")
 
 if pergunta:
     st.session_state.mensagens.append({"role": "user", "content": pergunta})
@@ -300,11 +273,11 @@ if pergunta:
         try:
             codigo = gerar_codigo(pergunta)
             resultado = executar_codigo(codigo)
-            resposta_final = gerar_resposta(pergunta, resultado)
+            resposta = gerar_resposta(pergunta, resultado)
 
-            st.write(resposta_final)
+            st.write(resposta)
 
-            with st.expander("Ver cálculo executado"):
+            with st.expander("🔍 Ver código gerado"):
                 st.code(codigo, language="python")
 
             if isinstance(resultado, pd.DataFrame):
@@ -314,10 +287,8 @@ if pergunta:
             else:
                 st.write(resultado)
 
-        except Exception as erro:
-            resposta_final = f"Não consegui calcular com segurança. Erro: {erro}"
-            st.error(resposta_final)
+        except Exception as e:
+            st.error(f"Erro: {e}")
+            resposta = f"Erro ao processar: {e}"
 
-    st.session_state.mensagens.append(
-        {"role": "assistant", "content": resposta_final}
-    )
+    st.session_state.mensagens.append({"role": "assistant", "content": resposta})
