@@ -26,7 +26,7 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
-URL_EXCEL = "https://drive.google.com/uc?id=1SBbrWnhXnS9azkEOJuyjL4BuI_LIT00E"
+URL_EXCEL = "https://docs.google.com/spreadsheets/d/1ZUGDMLvVzKb0fy4vrekerC-1If0y85Bq/edit?usp=sharing&ouid=117347203238779379857&rtpof=true&sd=true"
 ARQUIVO_LOCAL = "arquivo_temp.xlsx"
 LOGO_LOCAL = "logo_panco.png"
 MEMORIA_LOCAL = "memoria_agente.json"
